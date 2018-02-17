@@ -11,6 +11,10 @@ import PicoBorgRev
 # Re-direct our output to standard error, we need to ignore standard out to hide some nasty print statements from pygame
 sys.stdout = sys.stderr
 
+# Global values
+global tankMode
+tankMode = False
+
 # Setup the PicoBorg Reverse
 PBR = PicoBorgRev.PicoBorgRev()
 #PBR.i2cAddress = 0x44                  # Uncomment and change the value if you have changed the board address
@@ -44,11 +48,19 @@ axisUpDown = 1                          # Joystick axis to read for up / down po
 axisUpDownInverted = False              # Set this to True if up and down appear to be swapped
 axisLeftRight = 2                       # Joystick axis to read for left / right position
 axisLeftRightInverted = False           # Set this to True if left and right appear to be swapped
+axisLeft = 1				# Joystick axis for Left wheels in tankMode
+axisLeftInverted = False		# Set this to True if up and down appear to be swapped
+axisRight = 3				# Joystick axis for Right wheels in tankMode
+axisRightInverted = False		# Set this to True if up and down appear to be swapped
 buttonResetEpo = 3                      # Joystick button number to perform an EPO reset (Start)
+buttonSelect = 0			# Joystick Select button (used to shutdown system)
 buttonSlow = 8                          # Joystick button number for driving slowly whilst held (L2)
 slowFactor = 0.5                        # Speed to slow to when the drive slowly button is held, e.g. 0.5 would be half speed
 buttonFastTurn = 9                      # Joystick button number for turning fast (R2)
 interval = 0.00                         # Time between updates in seconds, smaller responds faster but uses more processor time
+buttonSetTankMode = 4                   # Joystick button number to enable automatic control (D-Pad UP)
+buttonSetDefaultMode = 6                # Joystick button number to enable manual control (D-Pad DOWN)
+
 
 # Power settings
 voltageIn = 12.0                        # Total battery voltage to the PicoBorg Reverse
@@ -64,7 +76,7 @@ else:
 PBR.MotorsOff()
 os.environ["SDL_VIDEODRIVER"] = "dummy" # Removes the need to have a GUI window
 pygame.init()
-#pygame.display.set_mode((1,1))
+pygame.display.set_mode((1,1))
 print 'Waiting for joystick... (press CTRL+C to abort)'
 while True:
     try:
@@ -106,6 +118,7 @@ try:
     while running:
         # Get the latest events from the system
         hadEvent = False
+        driveSlow = False
         events = pygame.event.get()
         # Handle each event individually
         for event in events:
@@ -119,36 +132,67 @@ try:
                 # A joystick has been moved
                 hadEvent = True
             if hadEvent:
-                # Read axis positions (-1 to +1)
-                if axisUpDownInverted:
-                    upDown = -joystick.get_axis(axisUpDown)
-                else:
-                    upDown = joystick.get_axis(axisUpDown)
-                if axisLeftRightInverted:
-                    leftRight = -joystick.get_axis(axisLeftRight)
-                else:
-                    leftRight = joystick.get_axis(axisLeftRight)
-                # Apply steering speeds
-                if not joystick.get_button(buttonFastTurn):
-                    leftRight *= 0.5
-                # Determine the drive power levels
-                driveLeft = -upDown
-                driveRight = -upDown
-                if leftRight < -0.05:
-                    # Turning left
-                    driveLeft *= 1.0 + (2.0 * leftRight)
-                elif leftRight > 0.05:
-                    # Turning right
-                    driveRight *= 1.0 - (2.0 * leftRight)
+                if joystick.get_button(buttonSetTankMode):
+		    tankMode = True
+		if joystick.get_button(buttonSetDefaultMode):
+		    tankMode = False
                 # Check for button presses
+                if joystick.get_button(buttonSelect) and joystick.get_button(buttonResetEpo):
+		    os.system("shutdown -h now")
                 if joystick.get_button(buttonResetEpo):
                     PBR.ResetEpo()
                 if joystick.get_button(buttonSlow):
-                    driveLeft *= slowFactor
-                    driveRight *= slowFactor
-                # Set the motors to the new speeds
-                PBR.SetMotor1(driveRight * maxPower)
-                PBR.SetMotor2(-driveLeft * maxPower)
+		    driveSlow = True
+
+		if not tankMode:
+                    # Read axis positions (-1 to +1)
+                    if axisUpDownInverted:
+                        upDown = -joystick.get_axis(axisUpDown)
+                    else:
+                        upDown = joystick.get_axis(axisUpDown)
+                    if axisLeftRightInverted:
+                        leftRight = -joystick.get_axis(axisLeftRight)
+                    else:
+                        leftRight = joystick.get_axis(axisLeftRight)
+                    # Apply steering speeds
+                    if not joystick.get_button(buttonFastTurn):
+                        leftRight *= 0.5
+                    # Determine the drive power levels
+                    driveLeft = -upDown
+                    driveRight = -upDown
+                    if leftRight < -0.05:
+                        # Turning left
+                        driveLeft *= 1.0 + (2.0 * leftRight)
+                    elif leftRight > 0.05:
+                        # Turning right
+                        driveRight *= 1.0 - (2.0 * leftRight)
+		    if driveSlow:
+                        driveLeft *= slowFactor
+                        driveRight *= slowFactor
+                    # Set the motors to the new speeds
+                    PBR.SetMotor1(driveRight * maxPower)
+                    PBR.SetMotor2(-driveLeft * maxPower)
+
+		else: # tankMode
+		    if axisLeftInverted:
+		        left = joystick.get_axis(axisLeft)
+		    else:
+		        left = -joystick.get_axis(axisLeft)
+
+		    if axisRightInverted:
+		        right = joystick.get_axis(axisRight)
+		    else:
+		        right = -joystick.get_axis(axisRight)
+
+		    if driveSlow:
+		        left *= slowFactor
+		        right *= slowFactor
+
+                    # Set the motors to the new speeds
+                    PBR.SetMotor1(right * maxPower)
+                    PBR.SetMotor2(-left * maxPower)
+		    
+
         # Change the LED to reflect the status of the EPO latch
         PBR.SetLed(PBR.GetEpo())
         # Wait for the interval period
